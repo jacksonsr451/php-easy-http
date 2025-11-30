@@ -1,16 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message;
 
 use InvalidArgumentException;
 use PhpEasyHttp\Http\Message\Interfaces\ResponseInterface;
-use PhpEasyHttp\HTTP\Message\Traits\MessageTrait;
+use PhpEasyHttp\Http\Message\Traits\MessageTrait;
 
 class Response implements ResponseInterface
 {
     use MessageTrait;
 
     private int $code;
+
+    private string $reasonPhrase = '';
     private const REASON_PHRASE = [
         100 => 'Continue',
         101 => 'Switching protocols',
@@ -77,7 +81,7 @@ class Response implements ResponseInterface
         511 => 'Network Authentication Required'
     ];
 
-    public function __construct(int $code, $body = null, array $headers = [], string $version = "1.1")
+    public function __construct(int $code = 200, mixed $body = null, array $headers = [], string $version = '1.1')
     {
         $this->code = $code;
         $this->setBody($body);
@@ -90,21 +94,27 @@ class Response implements ResponseInterface
         return $this->code;
     }
     
-    public function withStatus($code, $reasonPhrase = ''): self
+    public function withStatus(int $code, string $reasonPhrase = ''): self
     {
-        if (! is_int($code)) {
-            throw new InvalidArgumentException("Argument {$code} must be integer only!");
+        if ($code < 100 || $code > 599) {
+            throw new InvalidArgumentException('HTTP status code must be between 100 and 599.');
         }
-        if ($this->code === $code) {
+
+        if ($this->code === $code && $reasonPhrase === $this->reasonPhrase) {
             return $this;
         }
         $clone = clone $this;
         $clone->code = $code;
+        $clone->reasonPhrase = $reasonPhrase;
         return $clone;
     }
     
     public function getReasonPhrase(): string
     {
+        if ($this->reasonPhrase !== '') {
+            return $this->reasonPhrase;
+        }
+
         return self::REASON_PHRASE[$this->code] ?? '';
     }
 }

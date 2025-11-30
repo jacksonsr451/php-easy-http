@@ -1,27 +1,28 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message\Interfaces;
 
 interface MessageInterface
 {
-
     public function getProtocolVersion(): string;
 
-    public function withProtocolVersion($version): self;
+    public function withProtocolVersion(string $version): self;
 
     public function getHeaders(): array;
 
-    public function hasHeader($name): bool;
+    public function hasHeader(string $name): bool;
 
-    public function getHeader($name): array;
+    public function getHeader(string $name): array;
 
-    public function getHeaderLine($name): string;
+    public function getHeaderLine(string $name): string;
 
-    public function withHeader($name, $value): self;
+    public function withHeader(string $name, string|array $value): self;
 
-    public function withAddedHeader($name, $value): self;
+    public function withAddedHeader(string $name, string|array $value): self;
 
-    public function withoutHeader($name): self;
+    public function withoutHeader(string $name): self;
 
     public function getBody(): StreamInterface;
 
@@ -29,5 +30,5 @@ interface MessageInterface
 
     public function setHeaders(array $headers): void;
 
-    public function setBody($body): void;
+    public function setBody(mixed $body): void;
 }

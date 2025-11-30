@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message;
 
 use InvalidArgumentException;
@@ -7,41 +9,76 @@ use PhpEasyHttp\Http\Message\Interfaces\UriInterface;
 
 class Uri implements UriInterface
 {
+    private string $scheme = 'http';
 
-    private string $scheme;
-    private string $host;
-    private null|int $port;
-    private string $user;
-    private null|string $password;
-    private string $path;
-    private string $query;
-    private string $fragment;
+    private string $host = 'localhost';
+
+    private ?int $port = null;
+
+    private string $user = '';
+
+    private ?string $password = null;
+
+    private string $path = '/';
+
+    private string $query = '';
+
+    private string $fragment = '';
 
     private const SCHEME_PORTS = ['http' => 80, 'https' => 443];
-    private const SUPPORTED_SCHEMS = ['http', 'https'];
+    private const SUPPORTED_SCHEMES = ['http', 'https'];
 
     public function __construct(string $uri)
     {
         $uriParts = parse_url($uri);
-        $this->scheme = $uriParts['scheme'];
+        if ($uriParts === false) {
+            throw new InvalidArgumentException('Invalid URI provided.');
+        }
+
+        $this->scheme = $this->filterScheme(strtolower($uriParts['scheme'] ?? 'http'));
         $this->host = strtolower($uriParts['host'] ?? 'localhost');
-        $this->setPort($uriParts['port'] ?? null);
+        $this->setPort(isset($uriParts['port']) ? (int) $uriParts['port'] : null);
         $this->user = $uriParts['user'] ?? '';
         $this->password = $uriParts['password'] ?? null;
-        if (substr($uriParts['path'], -1, 1) !== '/') {
-            $uriParts['path'] = $uriParts['path'] . "/";
-        }
-        $this->path = $uriParts['path'] ?? '';
+        $this->path = $this->normalizePath($uriParts['path'] ?? '/');
         $this->query = $uriParts['query'] ?? '';
-        $this->fragment = $uriParts['fragments'] ?? '';
+        $this->fragment = $uriParts['fragment'] ?? '';
     }
 
-    private function setPort($port): void
+    private function normalizePath(string $path): string
     {
-        if (self::SCHEME_PORTS[$this->scheme] === $port) {
+        if ($path === '') {
+            return '/';
+        }
+
+        if ($path[0] !== '/') {
+            $path = '/' . $path;
+        }
+
+        return $path;
+    }
+
+    private function filterScheme(string $scheme): string
+    {
+        if (! in_array($scheme, self::SUPPORTED_SCHEMES, true)) {
+            throw new InvalidArgumentException('Unsupported scheme!');
+        }
+
+        return $scheme;
+    }
+
+    private function setPort(?int $port): void
+    {
+        if ($port !== null && ($port < 1 || $port > 65535)) {
+            throw new InvalidArgumentException('Invalid port provided.');
+        }
+
+        $defaultPort = self::SCHEME_PORTS[$this->scheme] ?? null;
+        if ($defaultPort !== null && $defaultPort === $port) {
             $this->port = null;
             return;
         }
+
         $this->port = $port;
     }
 
@@ -98,22 +135,19 @@ class Uri implements UriInterface
         return $this->fragment;
     }
     
-    public function withScheme($scheme): self
+    public function withScheme(string $scheme): self
     {
-        if ($this->scheme === $scheme) {
+        $normalized = strtolower($scheme);
+        if ($this->scheme === $normalized) {
             return $this;
         }
 
-        if (! in_array($scheme, self::SUPPORTED_SCHEMS)) {
-            throw new InvalidArgumentException('Unsupported scheme!');
-        }
-
         $clone = clone $this;
-        $clone->scheme = $scheme;
+        $clone->scheme = $clone->filterScheme($normalized);
         return $clone;
     }
     
-    public function withUserInfo($user, $password = null): self
+    public function withUserInfo(string $user, ?string $password = null): self
     {
         $clone = clone $this;
         $clone->user = $user;
@@ -121,22 +155,19 @@ class Uri implements UriInterface
         return $clone;
     }
     
-    public function withHost($host): self
+    public function withHost(string $host): self
     {
-        if (! is_string($host)) {
-            throw new InvalidArgumentException('Invalid host!');
-        }
-
-        if (strtolower($host) === strtolower($this->host)) {
+        $normalized = strtolower(trim($host));
+        if ($normalized === $this->host) {
             return $this;
         }
 
         $clone = clone $this;
-        $clone->host = strtolower($host);
+        $clone->host = $normalized;
         return $clone;
     }
     
-    public function withPort($port): self
+    public function withPort(?int $port): self
     {
         if ($this->port === $port) {
             return $this;
@@ -147,44 +178,39 @@ class Uri implements UriInterface
         return $clone;
     }
     
-    public function withPath($path): self
+    public function withPath(string $path): self
     {
-        if (! is_string($path)) {
-            throw new InvalidArgumentException("Invalid path");
-        }
-
-        if ($path === $this->path) {
+        $normalized = $this->normalizePath($path);
+        if ($normalized === $this->path) {
             return $this;
         }
 
         $clone = clone $this;
-        $clone->path = $path;
+        $clone->path = $normalized;
         return $clone;
     }
     
-    public function withQuery($query): self
+    public function withQuery(string $query): self
     {
-        if (! is_string($query)) {
-            throw new InvalidArgumentException("Invalid query");
-        }
-
-        if ($query === $this->query) {
+        $normalized = ltrim($query, '?');
+        if ($normalized === $this->query) {
             return $this;
         }
 
         $clone = clone $this;
-        $clone->query = $query;
+        $clone->query = $normalized;
         return $clone;
     }
     
-    public function withFragment($fragment): self
+    public function withFragment(string $fragment): self
     {
-        if ($fragment === $this->fragment) {
+        $normalized = ltrim($fragment, '#');
+        if ($normalized === $this->fragment) {
             return $this;
         }
 
         $clone = clone $this;
-        $clone->fragment = $fragment;
+        $clone->fragment = $normalized;
         return $clone;
     }
     
@@ -199,10 +225,10 @@ class Uri implements UriInterface
             $fragment = '#' . $this->fragment;
         }
         return sprintf(
-            '%s:://%s%s%s%s',
+            '%s://%s%s%s%s',
             $this->scheme,
             $this->getAuthority(),
-            $this->getPath,
+            $this->getPath(),
             $query,
             $fragment
         );

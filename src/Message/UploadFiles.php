@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message;
 
 use InvalidArgumentException;
@@ -10,46 +12,34 @@ use RuntimeException;
 class UploadFiles implements UploadFileInterface
 {
     private const ERRORS = [
-        UPLOAD_ERR_OK => 1,
-        UPLOAD_ERR_INI_SIZE => 1,
-        UPLOAD_ERR_FORM_SIZE => 1,
-        UPLOAD_ERR_PARTIAL => 1,
-        UPLOAD_ERR_NO_FILE => 1,
-        UPLOAD_ERR_NO_TMP_DIR => 1,
-        UPLOAD_ERR_CANT_WRITE => 1,
-        UPLOAD_ERR_EXTENSION => 1,
+        UPLOAD_ERR_OK => true,
+        UPLOAD_ERR_INI_SIZE => true,
+        UPLOAD_ERR_FORM_SIZE => true,
+        UPLOAD_ERR_PARTIAL => true,
+        UPLOAD_ERR_NO_FILE => true,
+        UPLOAD_ERR_NO_TMP_DIR => true,
+        UPLOAD_ERR_CANT_WRITE => true,
+        UPLOAD_ERR_EXTENSION => true,
     ];
 
-    private string $clientFilename;
+    private ?string $clientFilename;
 
-    private string $clientMediaType;
+    private ?string $clientMediaType;
 
     private int $error;
 
-    private string|null $file;
+    private ?string $file = null;
 
     private bool $moved = false;
 
     private int $size;
 
-    private StreamInterface|null $stream;
+    private ?StreamInterface $stream = null;
 
-    public function __construct($streamOrFile, $size, $errorStatus, $clientFilename = null, $clientMediaType = null)
+    public function __construct(mixed $streamOrFile, int $size, int $errorStatus, ?string $clientFilename = null, ?string $clientMediaType = null)
     {
-        if (false === is_int($errorStatus) || !isset(self::ERRORS[$errorStatus])) {
-            throw new InvalidArgumentException('Upload file error status must be an integer value and one of the "UPLOAD_ERR_*" constants.');
-        }
-
-        if (false === is_int($size)) {
-            throw new InvalidArgumentException('Upload file size must be an integer');
-        }
-
-        if (null !== $clientFilename && !\is_string($clientFilename)) {
-            throw new InvalidArgumentException('Upload file client filename must be a string or null');
-        }
-
-        if (null !== $clientMediaType && !\is_string($clientMediaType)) {
-            throw new InvalidArgumentException('Upload file client media type must be a string or null');
+        if (! isset(self::ERRORS[$errorStatus])) {
+            throw new InvalidArgumentException('Upload file error status must be a valid "UPLOAD_ERR_*" constant.');
         }
 
         $this->error = $errorStatus;
@@ -58,7 +48,7 @@ class UploadFiles implements UploadFileInterface
         $this->clientMediaType = $clientMediaType;
 
         if (UPLOAD_ERR_OK === $this->error) {
-            if (is_string($streamOrFile) && '' !== $streamOrFile) {
+            if (is_string($streamOrFile) && $streamOrFile !== '') {
                 $this->file = $streamOrFile;
             } elseif (is_resource($streamOrFile)) {
                 $this->stream = new Stream($streamOrFile);
@@ -96,11 +86,11 @@ class UploadFiles implements UploadFileInterface
         return new Stream($resource);
     }
 
-    public function moveTo($targetPath): void
+    public function moveTo(string $targetPath): void
     {
         $this->validateActive();
 
-        if (! is_string($targetPath) || '' === $targetPath) {
+        if ($targetPath === '') {
             throw new InvalidArgumentException('Invalid path provided for move operation; must be a non-empty string');
         }
 
@@ -130,7 +120,7 @@ class UploadFiles implements UploadFileInterface
         }
     }
 
-    public function getSize(): int|null
+    public function getSize(): ?int
     {
         return $this->size;
     }
@@ -140,12 +130,12 @@ class UploadFiles implements UploadFileInterface
         return $this->error;
     }
 
-    public function getClientFilename(): string|null
+    public function getClientFilename(): ?string
     {
         return $this->clientFilename;
     }
 
-    public function getClientMediaType(): string|null
+    public function getClientMediaType(): ?string
     {
         return $this->clientMediaType;
     }

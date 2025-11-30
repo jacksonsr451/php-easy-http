@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Server;
 
 use ArrayAccess;
@@ -14,14 +16,17 @@ use PhpEasyHttp\Http\Server\Interfaces\RequestHandlerInterface;
 class CsrfTokenMiddleware implements MiddlewareInterface
 {
     private array|ArrayAccess $session;
+
     private int $limit;
+
     private string $sessionKey;
+
     private string $formKey;
 
-    public function __construct(&$session, int $limit = 50, string $sessionKey = 'csrf_tokens', string $formKey = '_csrf')
+    public function __construct(array|ArrayAccess &$session, int $limit = 50, string $sessionKey = 'csrf_tokens', string $formKey = '_csrf')
     {
         $this->validateSession($session);
-        $this->session = $session;
+        $this->session = &$session;
         $this->limit = $limit;
         $this->sessionKey = $sessionKey;
         $this->formKey = $formKey;
@@ -29,15 +34,20 @@ class CsrfTokenMiddleware implements MiddlewareInterface
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        if (in_array($request->getMethod(), ['post', 'delete', 'put'])) {
+        if (in_array($request->getMethod(), ['post', 'delete', 'put'], true)) {
             $params = $request->getParsedBody() ?? [];
-            if (! array_key_exists($this->formKey, $params)) {
-                throw new NoCsrfException("csrf token is required!");
-            } elseif (! in_array($params[$this->formKey], $this->session[$this->sessionKey])) {
-                throw new InvalidCsrfException("This csrf token is invalid!");
+            if (! is_array($params) || ! array_key_exists($this->formKey, $params)) {
+                throw new NoCsrfException('CSRF token is required.');
             }
+
+            $tokens = $this->session[$this->sessionKey] ?? [];
+            if (! in_array($params[$this->formKey], $tokens, true)) {
+                throw new InvalidCsrfException('This CSRF token is invalid.');
+            }
+
             $this->removeToken($params[$this->formKey]);
         }
+
         return $handler->handle($request);
     }
 
@@ -50,7 +60,7 @@ class CsrfTokenMiddleware implements MiddlewareInterface
         return $token;
     }
 
-    public function validateSession($session): void
+    public function validateSession(array|ArrayAccess $session): void
     {
         if (! is_array($session) && ! $session instanceof ArrayAccess) {
             throw new TypeError('Session is not in array!');
@@ -69,12 +79,26 @@ class CsrfTokenMiddleware implements MiddlewareInterface
 
     public function removeToken(string $token): void
     {
-        unset($this->session[$this->sessionKey][$token]);
+        $tokens = $this->session[$this->sessionKey] ?? [];
+
+        if (is_array($tokens)) {
+            $index = array_search($token, $tokens, true);
+            if ($index !== false) {
+                unset($tokens[$index]);
+                $this->session[$this->sessionKey] = $tokens;
+            }
+            return;
+        }
+
+        if ($tokens instanceof ArrayAccess) {
+            unset($tokens[$token]);
+            $this->session[$this->sessionKey] = $tokens;
+        }
     }
 
     public function limitToken(array $tokens): array
     {
-        if (count($tokens) > $this->limit) {
+        while (count($tokens) > $this->limit) {
             array_shift($tokens);
         }
         return $tokens;

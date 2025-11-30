@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message\Interfaces;
 
 interface UriInterface
@@ -12,7 +14,7 @@ interface UriInterface
 
     public function getHost(): string;
 
-    public function getPort(): null|int;
+    public function getPort(): ?int;
 
     public function getPath(): string;
 
@@ -20,19 +22,19 @@ interface UriInterface
 
     public function getFragment(): string;
 
-    public function withScheme($scheme): self;
+    public function withScheme(string $scheme): self;
 
-    public function withUserInfo($user, $password = null): self;
+    public function withUserInfo(string $user, ?string $password = null): self;
 
-    public function withHost($host): self;
+    public function withHost(string $host): self;
 
-    public function withPort($port): self;
+    public function withPort(?int $port): self;
 
-    public function withPath($path): self;
+    public function withPath(string $path): self;
 
-    public function withQuery($query): self;
+    public function withQuery(string $query): self;
 
-    public function withFragment($fragment): self;
+    public function withFragment(string $fragment): self;
 
     public function __toString(): string;
 }

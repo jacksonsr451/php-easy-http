@@ -16,7 +16,7 @@
         "email": "jackson.severino.rocha@escola.pr.gov.br"
     }],
     "require": {
-        "php": ">=7.4"
+        "php": "^8.2"
     },
     "repositories": [{
         "type": "package",

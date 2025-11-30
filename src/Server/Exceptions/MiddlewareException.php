@@ -1,13 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Server\Exceptions;
 
 use Exception;
+use Throwable;
 
 class MiddlewareException extends Exception
 {
-    public function __construct($message = "Exception in middleware")
+    public function __construct(string $message = 'Exception in middleware', int $code = 0, ?Throwable $previous = null)
     {
-        $this->message = $message;
+        parent::__construct($message, $code, $previous);
     }
 }

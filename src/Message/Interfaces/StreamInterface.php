@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message\Interfaces;
 
 interface StreamInterface
@@ -8,9 +10,9 @@ interface StreamInterface
 
     public function close(): void;
 
-    public function detach();
+    public function detach(): mixed;
 
-    public function getSize(): int|null;
+    public function getSize(): ?int;
 
     public function tell(): int;
 
@@ -18,19 +20,19 @@ interface StreamInterface
 
     public function isSeekable(): bool;
 
-    public function seek($offset, $whence = SEEK_SET): void;
+    public function seek(int $offset, int $whence = SEEK_SET): void;
 
     public function rewind(): void;
 
     public function isWritable(): bool;
 
-    public function write($string): int;
+    public function write(string $string): int;
 
     public function isReadable(): bool;
 
-    public function read($length): string;
+    public function read(int $length): string;
 
     public function getContents(): string;
 
-    public function getMetadata($key = null): null|array;
+    public function getMetadata(?string $key = null): mixed;
 }

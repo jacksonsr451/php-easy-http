@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Message\Traits;
 
 use InvalidArgumentException;
@@ -7,17 +9,20 @@ use PhpEasyHttp\Http\Message\Interfaces\StreamInterface;
 use PhpEasyHttp\Http\Message\Stream;
 
 trait MessageTrait
-{ 
-    private string $protocol = "1.1";
+{
+    private string $protocol = '1.1';
+
+    /** @var array<string, string[]> */
     private array $headers = [];
-    private StreamInterface $body;
-    
+
+    private ?StreamInterface $body = null;
+
     public function getProtocolVersion(): string
     {
         return $this->protocol;
     }
-    
-    public function withProtocolVersion($version): self
+
+    public function withProtocolVersion(string $version): self
     {
         if ($this->protocol === $version) {
             return $this;
@@ -27,78 +32,78 @@ trait MessageTrait
         $clone->protocol = $version;
         return $clone;
     }
-    
+
     public function getHeaders(): array
     {
         return $this->headers;
     }
-    
-    public function hasHeader($name): bool
+
+    public function hasHeader(string $name): bool
     {
         $name = strtolower($name);
-        return isset($this->headers[$name]);
+        return array_key_exists($name, $this->headers);
     }
-    
-    public function getHeader($name): array
+
+    public function getHeader(string $name): array
     {
         $name = strtolower($name);
-        if (! $this->hasHeader($name)) {
-            return [];
-        }
-        return $this->headers[$name];
+        return $this->headers[$name] ?? [];
     }
-    
-    public function getHeaderLine($name): string
+
+    public function getHeaderLine(string $name): string
     {
         return implode(',', $this->getHeader($name));
     }
-    
-    public function withHeader($name, $value): self
+
+    public function withHeader(string $name, string|array $value): self
     {
-        if (! is_string($name)) {
-            throw new InvalidArgumentException("Argument {$name} must be a string!");
+        if ($name === '') {
+            throw new InvalidArgumentException('Header name cannot be empty.');
         }
-        if (! is_string($name) && ! is_array($value)) {
-            throw new InvalidArgumentException("Argument {$value} must be a string!");
-        }
+
         $name = strtolower($name);
-        if (is_string($value)) {
-            $value = array($value);
-        }
+        $values = is_array($value)
+            ? array_values(array_map(static fn ($headerValue): string => trim((string) $headerValue), $value))
+            : [trim((string) $value)];
+
         $clone = clone $this;
-        $clone->headers[$name] = $value;
+        $clone->headers[$name] = $values;
         return $clone;
     }
-    
-    public function withAddedHeader($name, $value): self
+
+    public function withAddedHeader(string $name, string|array $value): self
     {
-        if (! is_string($name)) {
-            throw new InvalidArgumentException("Argument {$name} must be a string!");
+        if ($name === '') {
+            throw new InvalidArgumentException('Header name cannot be empty.');
         }
-        if (! is_string($name) && ! is_array($value)) {
-            throw new InvalidArgumentException("Argument {$value} must be a string!");
-        }
+
         $name = strtolower($name);
-        if (is_string($value)) {
-            $value = array($value);
-        }
+        $values = is_array($value)
+            ? array_values(array_map(static fn ($headerValue): string => trim((string) $headerValue), $value))
+            : [trim((string) $value)];
+
         $clone = clone $this;
-        $clone->headers[$name] = array_merge($clone->headers, $value);
+        $clone->headers[$name] = array_merge($clone->headers[$name] ?? [], $values);
         return $clone;
     }
-    
-    public function withoutHeader($name): self
+
+    public function withoutHeader(string $name): self
     {
+        $name = strtolower($name);
+        if (! $this->hasHeader($name)) {
+            return $this;
+        }
+
         $clone = clone $this;
         unset($clone->headers[$name]);
         return $clone;
     }
-    
+
     public function getBody(): StreamInterface
     {
-        return $this->body;
+        return $this->body ??= new Stream();
     }
-    
+
     public function withBody(StreamInterface $body): self
     {
         $clone = clone $this;
@@ -109,24 +114,40 @@ trait MessageTrait
     public function setHeaders(array $headers): void
     {
         foreach ($headers as $key => $value) {
-            $this->headers[strtolower($key)] = $value;
+            if (! is_string($key)) {
+                continue;
+            }
+
+            $normalized = strtolower($key);
             if (is_string($value)) {
-                $this->headers[strtolower($key)] = explode(', ', $value);
+                $this->headers[$normalized] = array_map('trim', explode(',', $value));
+                continue;
+            }
+
+            if (is_array($value)) {
+                $this->headers[$normalized] = array_values(array_map(static fn ($headerValue): string => trim((string) $headerValue), $value));
             }
         }
     }
 
-    public function setBody($body): void
+    public function setBody(mixed $body): void
     {
-        if (! ($body instanceof StreamInterface)) {
-            $body = new Stream();
+        if (! $body instanceof StreamInterface) {
+            $body = new Stream($body);
         }
+
         $this->body = $body;
     }
 
     protected function inHeader(string $name, string $value): bool
     {
         $headers = $this->getHeader($name);
-        return in_array($value, $headers);
+        foreach ($headers as $headerValue) {
+            if (stripos($headerValue, $value) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -1,8 +1,9 @@
 <?php
 
+declare(strict_types=1);
+
 namespace PhpEasyHttp\Http\Server;
 
-use Exception;
 use PhpEasyHttp\Http\Message\Interfaces\ServerRequestInterface;
 use PhpEasyHttp\Http\Message\Interfaces\UriInterface;
 use PhpEasyHttp\Http\Message\ServerRequest;
@@ -14,98 +15,131 @@ use Throwable;
 
 class Route
 {
-    private static array $routes;
-    private static array $params = [];
+    private static array $routes = [];
 
-    private static ServerRequestInterface $request;
+    private static array $params = [];
 
     public static function load(): void
     {
         $path = self::getUri()->getPath();
         $request = self::getRequest();
+
         try {
-            if (! array_key_exists($path, self::$routes)) {
-                if (! self::validateUriWithParams($path)) {
-                    throw new RouteDontExistException("Route dont exists {$path}");
-                } else {
-                    foreach (self::validateUriWithParams($path) as $key => $value) {
-                        $route = $value;
-                    }
+            $route = self::$routes[$path] ?? null;
+            if ($route === null) {
+                $matched = self::validateUriWithParams($path);
+                if (empty($matched)) {
+                    throw new RouteDontExistException("Route does not exist: {$path}");
                 }
+                $route = array_shift($matched);
             } else {
-                $route = self::$routes[$path];
+                self::$params = [];
             }
 
-            $controller = self::getController($route);
-            $controller = new $controller();
+            $controllerClass = self::getController($route);
+            $controller = new $controllerClass();
             $action = self::getMethod($controller, $route);
-            
-            (new RequestHandler($route['middlewares'], function () use ($controller, $action, $request) {
-                self::loadMethod($controller, $action, $request);
-            }, []))->handle($request);
+
+            (new RequestHandler(
+                $route['middlewares'] ?? [],
+                function () use ($controller, $action, $request): void {
+                    self::loadMethod($controller, $action, $request);
+                },
+                []
+            ))->handle($request);
         } catch (Throwable $ex) {
-            echo "<pre>";
-            print_r($ex->getMessage());
-            echo "<pre>";
+            echo '<pre>' . $ex->getMessage() . '</pre>';
         }
     }
 
     private static function getUri(): UriInterface
     {
-        $scheme = "http";
-        if ($_SERVER[ "SERVER_PORT" ] === 443) {
-            $scheme = "https";
-        }
-        if (in_array('QUERY_STING', $_SERVER)) {
-            return new Uri(sprintf('%s://%s%s%s', $scheme, $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'], $_SERVER['QUERY_STING'] === '' ? '' : '?'.$_SERVER['QUERY_STING']));
-        }
-        return new Uri(sprintf('%s://%s%s%s', $scheme, $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'], ''));
+        $port = (int) ($_SERVER['SERVER_PORT'] ?? 80);
+        $scheme = $port === 443 ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
+
+        return new Uri(sprintf('%s://%s%s', $scheme, $host, $requestUri));
     }
 
     private static function getRequest(): ServerRequestInterface
     {
         return new ServerRequest(
-            $_SERVER['REQUEST_METHOD'],
+            $_SERVER['REQUEST_METHOD'] ?? 'GET',
             self::getUri(),
-            headers_list(),
+            self::getRequestHeaders(),
             $_SERVER,
-            $_COOKIE
+            $_COOKIE,
+            []
         );
     }
 
-    private static function validateUriWithParams($uri): array
+    private static function getRequestHeaders(): array
     {
-        $matcheUri = array_filter(
+        if (function_exists('getallheaders')) {
+            return getallheaders();
+        }
+
+        $headers = [];
+        foreach ($_SERVER as $key => $value) {
+            if (str_starts_with($key, 'HTTP_')) {
+                $normalized = str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($key, 5)))));
+                $headers[$normalized] = $value;
+            }
+        }
+
+        foreach (['CONTENT_TYPE' => 'Content-Type', 'CONTENT_LENGTH' => 'Content-Length'] as $serverKey => $headerName) {
+            if (isset($_SERVER[$serverKey])) {
+                $headers[$headerName] = $_SERVER[$serverKey];
+            }
+        }
+        return $headers;
+    }
+
+    private static function validateUriWithParams(string $uri): array
+    {
+        $matched = array_filter(
             self::$routes,
-            function ($value) use ($uri) {
-                $regex = str_replace('/', '\/', ltrim($value, '/'));
-                return preg_match("/^{$regex}$/", ltrim($uri, '/'));
+            static function ($value, $routeKey) use ($uri): bool {
+                $escaped = preg_quote(ltrim($routeKey, '/'), '/');
+                $regex = preg_replace('/\\\{[^\/]+\\\}/', '([^\/]+)', $escaped);
+                return $regex !== null && preg_match("/^{$regex}$/", ltrim($uri, '/')) === 1;
             },
-            ARRAY_FILTER_USE_KEY
+            ARRAY_FILTER_USE_BOTH
         );
-        self::setParams($uri, key($matcheUri));
-        return $matcheUri;
+
+        if (! empty($matched)) {
+            $matchedRouteKey = array_key_first($matched);
+            if ($matchedRouteKey !== null) {
+                self::setParams($uri, (string) $matchedRouteKey);
+            }
+        }
+
+        return array_values($matched);
     }
 
-    private static function setParams($uri, $route): void
+    private static function setParams(string $uri, string $route): void
     {
-        $uri = explode('/', $uri);
-        $route = explode('/', $route);
-        self::$params = array_diff($uri, $route);
+        $uriParts = explode('/', trim($uri, '/'));
+        $routeParts = explode('/', trim($route, '/'));
+        self::$params = array_values(array_diff($uriParts, $routeParts));
     }
 
-    private static function loadMethod($controller, $action, $request): bool
+    private static function loadMethod(object $controller, string $action, ServerRequestInterface $request): bool
     {
-        switch ($_SERVER['REQUEST_METHOD']) {
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+
+        switch ($method) {
             case 'POST':
                 $controller->$action($request);
                 break;
 
             case 'PUT':
+            case 'PATCH':
                 $controller->$action(self::$params, $request);
                 break;
 
-            case 'DELETE';
+            case 'DELETE':
                 $controller->$action(self::$params);
                 break;
 
@@ -117,49 +151,50 @@ class Route
                 }
                 break;
         }
+
         return true;
     }
 
-    private static function getController($routes): string
+    private static function getController(array $routes): string
     {
-        $classes = explode("@", $routes['controller']);
+        $classes = explode('@', $routes['controller']);
         $namespace = "App\\Controllers\\{$classes[0]}";
 
-        if (!class_exists($namespace)) {
-            throw new ClassDontExistException("Class dont exists {$classes[0]}");
+        if (! class_exists($namespace)) {
+            throw new ClassDontExistException("Class does not exist {$classes[0]}");
         }
 
         return $namespace;
     }
 
-    private static function getMethod($classes, $routes): string
+    private static function getMethod(object $classes, array $routes): string
     {
-        $method = explode("@", $routes['controller']);
+        $method = explode('@', $routes['controller']);
 
-        if (!method_exists($classes, $method[1])) {
-            throw new MethodDontExistException("Method dont exists {$method[1]}");
+        if (! method_exists($classes, $method[1])) {
+            throw new MethodDontExistException("Method does not exist {$method[1]}");
         }
 
         return $method[1];
     }
 
-    public static function get($route, $controller, array $middlewares = []): void
+    public static function get(string $route, string $controller, array $middlewares = []): void
     {
-        self::$routes[$route] = array('controller' => $controller, 'middlewares' => $middlewares);
+        self::$routes[$route] = ['controller' => $controller, 'middlewares' => $middlewares];
     }
 
-    public static function post($route, $controller, array $middlewares = []): void
+    public static function post(string $route, string $controller, array $middlewares = []): void
     {
-        self::$routes[$route] = array('controller' => $controller, 'middlewares' => $middlewares);
+        self::$routes[$route] = ['controller' => $controller, 'middlewares' => $middlewares];
     }
 
-    public static function delete($route, $controller, array $middlewares = []): void
+    public static function delete(string $route, string $controller, array $middlewares = []): void
     {
-        self::$routes[$route] = array('controller' => $controller, 'middlewares' => $middlewares);
+        self::$routes[$route] = ['controller' => $controller, 'middlewares' => $middlewares];
     }
 
-    public static function put($route, $controller, array $middlewares = []): void
+    public static function put(string $route, string $controller, array $middlewares = []): void
     {
-        self::$routes[$route] = array('controller' => $controller, 'middlewares' => $middlewares);
+        self::$routes[$route] = ['controller' => $controller, 'middlewares' => $middlewares];
     }
 }
