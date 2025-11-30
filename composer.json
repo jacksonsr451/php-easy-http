@@ -1,7 +1,7 @@
 {
     "name": "jacksonsr451/php-easy-http",
     "description": "This is a simple library by HTTP, with server and message and using PSRs.",
-    "version": "1.2.0",
+    "version": "2.0.0",
     "type": "library",
     "license": "MIT",
     "prefer-stable": true,
