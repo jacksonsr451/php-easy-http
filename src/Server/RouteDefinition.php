@@ -28,7 +28,9 @@ class RouteDefinition
         private readonly array $middleware = [],
         private readonly ?string $name = null,
         private readonly ?string $summary = null,
-        private readonly array $tags = []
+        private readonly ?string $description = null,
+        private readonly array $tags = [],
+        private readonly ?array $responses = null
     ) {
         if ($path === '' || $path[0] !== '/') {
             throw new RouteDontExistException('Route paths must start with a forward slash.');
@@ -71,12 +73,30 @@ class RouteDefinition
         return $this->summary;
     }
 
+    public function getDescription(): ?string
+    {
+        return $this->description;
+    }
+
     /**
      * @return array<string>
      */
     public function getTags(): array
     {
         return $this->tags;
+    }
+
+    public function getResponses(): ?array
+    {
+        return $this->responses;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function getParameterNames(): array
+    {
+        return $this->parameterNames;
     }
 
     /**

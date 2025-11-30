@@ -17,6 +17,19 @@ class Router
         $this->routes[] = $definition;
     }
 
+    public function clear(): void
+    {
+        $this->routes = [];
+    }
+
+    /**
+     * @return RouteDefinition[]
+     */
+    public function getRoutes(): array
+    {
+        return $this->routes;
+    }
+
     /**
      * @return array{RouteDefinition, array<string, string>} 
      */

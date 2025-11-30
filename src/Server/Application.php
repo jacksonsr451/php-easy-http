@@ -16,6 +16,7 @@ use PhpEasyHttp\Http\Server\Interfaces\MiddlewareInterface;
 use PhpEasyHttp\Http\Server\Interfaces\RequestHandlerInterface;
 use PhpEasyHttp\Http\Server\Support\CallableRequestHandler;
 use PhpEasyHttp\Http\Server\Support\Container;
+use PhpEasyHttp\Http\Server\Support\OpenApi\OpenApiGenerator;
 use PhpEasyHttp\Http\Server\Support\ResponseFactory;
 use PhpEasyHttp\Http\Server\Support\RouteDocBlockParser;
 use ReflectionClass;
@@ -37,11 +38,51 @@ class Application
     /** @var array<int, MiddlewareInterface|callable|string> */
     private array $globalMiddleware = [];
 
+    private bool $docsEnabled = false;
+
+    /** @var array{
+     *     title?: string,
+     *     version?: string,
+     *     description?: string|null,
+     *     servers?: array<int, array<string, mixed>>,
+     *     openapiPath: string,
+     *     swaggerPath: string,
+     *     redocPath: string,
+     *     redocScriptPath: string
+     * } */
+    private array $docsOptions = [
+        'title' => 'php-easy-http API',
+        'version' => '1.0.0',
+        'description' => null,
+        'servers' => null,
+        'openapiPath' => '/openapi.json',
+        'swaggerPath' => '/docs',
+        'redocPath' => '/redoc',
+        'redocScriptPath' => '/openapi/redoc.js',
+    ];
+
+    private ?string $redocBundleCache = null;
+
     public function __construct(?Router $router = null, ?Container $container = null)
     {
         $this->router = $router ?? new Router();
         $this->container = $container ?? new Container();
         $this->container->set(ResponseFactory::class, fn () => new ResponseFactory());
+    }
+
+    /**
+     * Enable automatic OpenAPI generation plus Swagger UI and ReDoc viewer routes.
+     */
+    public function enableAutoDocs(array $options = []): void
+    {
+        $this->docsOptions = array_merge($this->docsOptions, $options);
+
+        if ($this->docsEnabled) {
+            return;
+        }
+
+        $this->docsEnabled = true;
+        $this->registerDocumentationRoutes();
     }
 
     public function register(string $id, callable|object|string $concrete): void
@@ -57,6 +98,16 @@ class Application
     public function use(string|MiddlewareInterface|callable $middleware): void
     {
         $this->globalMiddleware[] = $middleware;
+    }
+
+    public function getContainer(): Container
+    {
+        return $this->container;
+    }
+
+    public function getRouter(): Router
+    {
+        return $this->router;
     }
 
     /**
@@ -109,6 +160,8 @@ class Application
                         'middleware' => $definition['middleware'],
                         'name' => $definition['name'],
                         'summary' => $definition['summary'],
+                        'description' => $definition['description'] ?? null,
+                        'responses' => $definition['responses'] ?? null,
                         'tags' => $definition['tags'],
                     ]
                 );
@@ -148,6 +201,11 @@ class Application
             throw new InvalidArgumentException('Route middleware definition must be an array.');
         }
 
+        $responses = $options['responses'] ?? null;
+        if ($responses !== null && ! is_array($responses)) {
+            throw new InvalidArgumentException('Route responses definition must be an array when provided.');
+        }
+
         $route = new RouteDefinition(
             strtoupper($method),
             $path,
@@ -155,7 +213,9 @@ class Application
             $middleware,
             $options['name'] ?? null,
             $options['summary'] ?? null,
-            $options['tags'] ?? []
+            $options['description'] ?? null,
+            $options['tags'] ?? [],
+            $responses,
         );
 
         $this->router->add($route);
@@ -165,7 +225,22 @@ class Application
     {
         $request ??= $this->createRequestFromGlobals();
 
-        [$route, $params] = $this->router->match($request);
+        try {
+            [$route, $params] = $this->router->match($request);
+        } catch (Exceptions\RouteDontExistException $exception) {
+            $factory = $this->container->get(ResponseFactory::class);
+            $response = $factory->json([
+                'error' => 'Route not found',
+                'method' => $request->getMethod(),
+                'path' => (string) $request->getUri()->getPath(),
+            ], 404);
+
+            if ($emit) {
+                $this->emit($response);
+            }
+
+            return $response;
+        }
         foreach ($params as $key => $value) {
             $request = $request->withAttribute($key, $value);
         }
@@ -394,6 +469,104 @@ class Application
         }
 
         throw new RuntimeException('Unsupported response type returned from handler.');
+    }
+
+    private function registerDocumentationRoutes(): void
+    {
+        $this->get($this->docsOptions['openapiPath'], function (ResponseFactory $responses): ResponseInterface {
+            $generator = new OpenApiGenerator($this->router, $this->docsOptions);
+            return $responses->json($generator->generate());
+        });
+
+        $this->get($this->docsOptions['swaggerPath'], function (ResponseFactory $responses): ResponseInterface {
+            return $responses->html($this->renderSwaggerUi($this->docsOptions['openapiPath']));
+        });
+
+        $scriptPath = $this->docsOptions['redocScriptPath'];
+
+        $this->get($scriptPath, function (ResponseFactory $responses): ResponseInterface {
+            return $responses->text(
+                $this->getRedocBundle(),
+                200,
+                [
+                    'Content-Type' => 'application/javascript; charset=utf-8',
+                    'Cache-Control' => 'public, max-age=86400',
+                ]
+            );
+        });
+
+        $this->get($this->docsOptions['redocPath'], function (ResponseFactory $responses) use ($scriptPath): ResponseInterface {
+            return $responses->html($this->renderRedoc($this->docsOptions['openapiPath'], $scriptPath));
+        });
+    }
+
+    private function renderSwaggerUi(string $specPath): string
+    {
+        $spec = htmlspecialchars($specPath, ENT_QUOTES, 'UTF-8');
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Swagger UI</title>
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    </head>
+    <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin="anonymous"></script>
+        <script>
+            window.SwaggerUIBundle({
+                url: '{$spec}',
+                dom_id: '#swagger-ui'
+            });
+        </script>
+    </body>
+</html>
+HTML;
+    }
+
+    private function renderRedoc(string $specPath, string $scriptPath): string
+    {
+        $spec = htmlspecialchars($specPath, ENT_QUOTES, 'UTF-8');
+        $script = htmlspecialchars($scriptPath, ENT_QUOTES, 'UTF-8');
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>ReDoc</title>
+        <style>
+            html, body { margin: 0; padding: 0; height: 100%; }
+            redoc { display: block; height: 100%; }
+        </style>
+        <script src="{$script}" defer></script>
+    </head>
+    <body>
+        <redoc spec-url="{$spec}"></redoc>
+    </body>
+</html>
+HTML;
+    }
+
+    private function getRedocBundle(): string
+    {
+        if ($this->redocBundleCache !== null) {
+            return $this->redocBundleCache;
+        }
+
+        $path = __DIR__ . '/Support/OpenApi/redoc.standalone.js';
+        if (! is_file($path)) {
+            throw new RuntimeException('ReDoc bundle is missing from ' . $path);
+        }
+
+        $contents = file_get_contents($path);
+        if ($contents === false) {
+            throw new RuntimeException('Unable to read ReDoc bundle from ' . $path);
+        }
+
+        return $this->redocBundleCache = $contents;
     }
 
     private function createRequestFromGlobals(): ServerRequestInterface

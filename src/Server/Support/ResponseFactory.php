@@ -32,6 +32,12 @@ final class ResponseFactory
         return $this->respond($content, $status, $headers);
     }
 
+    public function html(string $content, int $status = 200, array $headers = []): ResponseInterface
+    {
+        $headers = array_merge(['Content-Type' => 'text/html; charset=utf-8'], $headers);
+        return $this->respond($content, $status, $headers);
+    }
+
     private function respond(string $body, int $status, array $headers): ResponseInterface
     {
         return new Response($status, $body, $headers);

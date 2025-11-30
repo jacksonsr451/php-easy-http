@@ -136,6 +136,56 @@ $app->registerControllers(AdminController::class);
 - Add a class-level `@RoutePrefix`/`@Prefix` directive or `#[RoutePrefix]`/`#[Prefix]` attribute for shared path segments.
 - Controllers can be registered as class names or instances (resolved through the container when available).
 
+## API Gateway Style Dynamic Routes
+
+The `jacksonsr45/api-gateway` package ships with a thin layer on top of `Application` that mimics APISIX-style route management. Routes can be loaded from JSON/YAML files, database records, or an admin API (via custom `GatewayRouteSource` implementations). Each `GatewayRoute` entry accepts:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | string | Unique identifier, becomes the route name. |
+| `methods` | string[] | List of HTTP verbs (`GET`, `POST`, ...). |
+| `path` | string | Same placeholder syntax as regular routes (`/users/{id}`). |
+| `handler` | string | Optional local handler reference (`Class@method` or invokable class). |
+| `proxy.handler` | string | Optional class implementing `InternalProxyInterface` for internal proxying. |
+| `middleware` | string[] | Middleware names already registered in the `Application`. |
+| `summary`/`tags` | string / string[] | Metadata for documentation.
+
+Exactly one of `handler` or `proxy` must be provided. Proxy handlers receive the current `ServerRequestInterface` (with route params stored as request attributes) and return a PSR-7 response. Unlike APISIX, proxying is fully in-process (no external HTTP hop) so you can encapsulate orchestration logic inside PHP classes.
+
+### Loading Routes from a File
+
+```php
+use Jacksonsr45\ApiGateway\Gateway;
+use Jacksonsr45\ApiGateway\Loader\FileGatewayRouteSource;
+use PhpEasyHttp\Http\Server\Application;
+
+$app = new Application();
+$gateway = new Gateway($app);
+
+$gateway->addSource(new FileGatewayRouteSource(__DIR__ . '/routes/gateway.yaml'));
+$gateway->boot();
+
+$app->run();
+```
+
+`gateway.yaml` (JSON works the same):
+
+```yaml
+routes:
+	- id: healthcheck
+		methods: [GET]
+		path: /health
+		handler: App\Http\HealthcheckHandler
+	- id: users-service
+		methods: [GET, POST]
+		path: /users
+		proxy:
+			handler: App\Gateway\UsersProxy
+		middleware: [auth]
+```
+
+Create additional `GatewayRouteSource` implementations (database, HTTP admin API, etc.) and feed them to `Gateway::addSource()` to merge multiple configuration backends. Because the router builds on top of the existing `Application`, you can reuse FastAPI-style handlers, middleware, and dependency injection with zero duplication.
+
 ## Handler Parameter Binding
 
 Handlers can type-hint any of the following and the application resolves them automatically:

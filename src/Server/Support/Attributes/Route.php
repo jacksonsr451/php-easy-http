@@ -25,7 +25,9 @@ final class Route
         array $middleware = [],
         private readonly ?string $name = null,
         private readonly ?string $summary = null,
-        array $tags = []
+        private readonly ?string $description = null,
+        private readonly ?array $responses = null,
+        ?array $tags = null
     ) {
         $this->methods = $this->normalizeMethods($method);
         if ($this->methods === []) {
@@ -37,7 +39,7 @@ final class Route
         }
 
         $this->middleware = $this->normalizeList($middleware);
-        $this->tags = $this->normalizeList($tags);
+        $this->tags = $tags === null ? [] : $this->normalizeList($tags);
     }
 
     /**
@@ -69,6 +71,16 @@ final class Route
     public function getSummary(): ?string
     {
         return $this->summary;
+    }
+
+    public function getDescription(): ?string
+    {
+        return $this->description;
+    }
+
+    public function getResponses(): ?array
+    {
+        return $this->responses;
     }
 
     /**

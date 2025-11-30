@@ -16,6 +16,8 @@ use ReflectionMethod;
  */
 final class RouteDocBlockParser
 {
+    /** @var array<int, string> */
+    private array $classTags = [];
     /**
      * Parse every public controller method searching for @Route directives.
      *
@@ -26,7 +28,9 @@ final class RouteDocBlockParser
      *     middleware: array<int, string>,
      *     name: string|null,
      *     summary: string|null,
-     *     tags: array<int, string>
+    *     description?: string|null,
+    *     responses?: array<string, mixed>|null,
+    *     tags: array<int, string>
      * }>
      */
     public function parse(ReflectionClass $controller): array
@@ -71,9 +75,11 @@ final class RouteDocBlockParser
         $attributes = $controller->getAttributes(RoutePrefixAttribute::class, ReflectionAttribute::IS_INSTANCEOF);
         if ($attributes !== []) {
             $instance = $attributes[0]->newInstance();
+            $this->classTags = $instance->getTags();
             return $instance->getPath();
         }
 
+        $this->classTags = [];
         return $this->extractPrefix($controller->getDocComment() ?: '');
     }
 
@@ -84,16 +90,18 @@ final class RouteDocBlockParser
      *     methodName: string,
      *     middleware: array<int, string>,
      *     name: string|null,
-     *     summary: string|null,
-     *     tags: array<int, string>
+    *     summary: string|null,
+    *     description?: string|null,
+    *     responses?: array<string, mixed>|null,
+    *     tags: array<int, string>
      * }>
      */
     private function parseMethod(ReflectionMethod $method, string $prefix): array
     {
-        return array_merge(
-            $this->parseMethodDocblock($method, $prefix),
-            $this->parseMethodAttributes($method, $prefix)
-        );
+        $docRoutes = $this->parseMethodDocblock($method, $prefix);
+        $attrRoutes = $this->parseMethodAttributes($method, $prefix);
+
+        return array_map(fn ($definition) => $this->applyClassTags($definition), array_merge($docRoutes, $attrRoutes));
     }
 
     /**
@@ -103,8 +111,10 @@ final class RouteDocBlockParser
      *     methodName: string,
      *     middleware: array<int, string>,
      *     name: string|null,
-     *     summary: string|null,
-     *     tags: array<int, string>
+    *     summary: string|null,
+    *     description?: string|null,
+    *     responses?: array<string, mixed>|null,
+    *     tags: array<int, string>
      * }>
      */
     private function parseMethodDocblock(ReflectionMethod $method, string $prefix): array
@@ -123,6 +133,7 @@ final class RouteDocBlockParser
         $tags = $this->parseList($directives['Tags'] ?? []);
         $name = $this->extractFirst($directives['Name'] ?? null);
         $summary = $this->extractFirst($directives['Summary'] ?? null);
+        $description = $this->extractFirst($directives['Description'] ?? null);
 
         $routes = [];
         foreach ($directives['Route'] as $routeLine) {
@@ -140,12 +151,23 @@ final class RouteDocBlockParser
                     'middleware' => $middleware,
                     'name' => $name,
                     'summary' => $summary,
+                    'description' => $description,
                     'tags' => $tags,
+                    'responses' => null,
                 ];
             }
         }
 
         return $routes;
+    }
+
+    private function applyClassTags(array $definition): array
+    {
+        if (! empty($this->classTags)) {
+            $definition['tags'] = array_values(array_unique(array_merge($this->classTags, $definition['tags'])));
+        }
+
+        return $definition;
     }
 
     /**
@@ -178,6 +200,8 @@ final class RouteDocBlockParser
                     'name' => $instance->getName(),
                     'summary' => $instance->getSummary(),
                     'tags' => $instance->getTags(),
+                    'description' => $instance->getDescription(),
+                    'responses' => $instance->getResponses(),
                 ];
             }
         }
