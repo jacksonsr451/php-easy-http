@@ -11,6 +11,11 @@
             "PhpEasyHttp\\Http\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "PhpEasyHttp\\Http\\Tests\\": "tests/"
+        }
+    },
     "authors": [{
         "name": "jacksonsr451",
         "email": "jackson.severino.rocha@escola.pr.gov.br"
@@ -18,11 +23,17 @@
     "require": {
         "php": "^8.2"
     },
+    "require-dev": {
+        "phpunit/phpunit": "^11.2"
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
     "repositories": [{
         "type": "package",
         "package": {
             "name": "jacksonsr451/php-easy-http",
-            "version": "1.2.0",
+            "version": "2.0.0",
             "source": {
                 "type": "vcs",
                 "url": "https://github.com/jacksonsr451/php-easy-http.git",
