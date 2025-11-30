@@ -17,6 +17,8 @@ use PhpEasyHttp\Http\Server\Interfaces\RequestHandlerInterface;
 use PhpEasyHttp\Http\Server\Support\CallableRequestHandler;
 use PhpEasyHttp\Http\Server\Support\Container;
 use PhpEasyHttp\Http\Server\Support\ResponseFactory;
+use PhpEasyHttp\Http\Server\Support\RouteDocBlockParser;
+use ReflectionClass;
 use ReflectionFunction;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -55,6 +57,63 @@ class Application
     public function use(string|MiddlewareInterface|callable $middleware): void
     {
         $this->globalMiddleware[] = $middleware;
+    }
+
+    /**
+     * Register controllers that describe their routes via PHPDoc comments.
+     *
+     * Each public method that contains an `@Route` directive will be converted into a
+     * route definition, mirroring FastAPI's decorator style without a dedicated routes file.
+     *
+     * Example:
+     * ```php
+    * /**
+    *  * @Route GET /users/{id}
+    *  * @Summary Show a user
+    *  * @Tags users,read
+    *  * @Middleware auth
+    *  *
+    *  * @return array
+    *  *\/
+    * public function show(int $id): array { // ... }
+     * ```
+     *
+     * @param array<int, string|object>|string|object $controllers
+     */
+    public function registerControllers(string|object|array $controllers): void
+    {
+        $targets = is_array($controllers) ? $controllers : [$controllers];
+        $parser = new RouteDocBlockParser();
+
+        foreach ($targets as $controller) {
+            $className = is_string($controller) ? $controller : $controller::class;
+
+            if (! class_exists($className)) {
+                throw new InvalidArgumentException("Controller {$className} does not exist.");
+            }
+
+            $reflection = new ReflectionClass($className);
+            $routes = $parser->parse($reflection);
+            if ($routes === []) {
+                continue;
+            }
+
+            $instance = is_object($controller) ? $controller : $this->resolveControllerInstance($className);
+
+            foreach ($routes as $definition) {
+                $this->addRoute(
+                    $definition['httpMethod'],
+                    $definition['path'],
+                    [$instance, $definition['methodName']],
+                    [
+                        'middleware' => $definition['middleware'],
+                        'name' => $definition['name'],
+                        'summary' => $definition['summary'],
+                        'tags' => $definition['tags'],
+                    ]
+                );
+            }
+        }
     }
 
     public function get(string $path, callable $handler, array $options = []): void
@@ -185,6 +244,10 @@ class Application
             $middleware = $target;
         }
 
+        if ($middleware instanceof MiddlewareInterface) {
+            return $middleware;
+        }
+
         if (is_callable($middleware)) {
             $resolved = $middleware($this->container);
             if (! $resolved instanceof MiddlewareInterface) {
@@ -195,6 +258,19 @@ class Application
         }
 
         throw new MiddlewareException('Unable to resolve middleware definition.');
+    }
+
+    private function resolveControllerInstance(string $controller): object
+    {
+        if ($this->container->has($controller)) {
+            return $this->container->get($controller);
+        }
+
+        if (! class_exists($controller)) {
+            throw new InvalidArgumentException("Controller {$controller} does not exist.");
+        }
+
+        return new $controller();
     }
 
     private function invokeHandler(callable $handler, ServerRequestInterface $request, array $params): mixed

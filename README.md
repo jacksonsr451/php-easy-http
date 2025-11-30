@@ -76,6 +76,66 @@ $app->put('/users/{userId}', function (int $userId, array $body) {
 - Paths can contain `{param}` placeholders; values are injected by name.
 - Route metadata (`name`, `summary`, `tags`) is preserved for tooling or documentation generators.
 
+## FastAPI-Style Declarative Routes
+
+Skip the manual route table by annotating controller methods with PHPDoc comments **or** native PHP attributes. Any public method that declares a route directive/attribute is automatically registered when you call `registerControllers()`.
+
+### Using PHPDoc
+
+```php
+use App\Controllers\UserController;
+use PhpEasyHttp\Http\Server\Application;
+
+$app = new Application();
+
+/**
+ * @RoutePrefix /api
+ */
+final class UserController
+{
+	/**
+	 * @Route GET /users/{id}
+	 * @Summary Fetch a single user
+	 * @Tags users,read
+	 * @Middleware auth
+	 */
+	public function show(int $id): array
+	{
+		return ['id' => $id];
+	}
+}
+
+$app->registerControllers(UserController::class);
+```
+
+### Using Native PHP Attributes
+
+```php
+use App\Controllers\AdminController;
+use PhpEasyHttp\Http\Server\Application;
+use PhpEasyHttp\Http\Server\Support\Attributes\Route;
+use PhpEasyHttp\Http\Server\Support\Attributes\RoutePrefix;
+
+$app = new Application();
+
+#[RoutePrefix('/admin')]
+final class AdminController
+{
+	#[Route(method: ['GET', 'POST'], path: '/reports', middleware: ['auth'], summary: 'Reports', tags: ['reports'])]
+	public function reports(): array
+	{
+		return ['reports' => []];
+	}
+}
+
+$app->registerControllers(AdminController::class);
+```
+
+- Use `@Route` or `#[Route]` to declare method + path; multiple HTTP verbs are allowed via arrays or `GET|POST` strings.
+- Optional metadata: `Summary`, `Tags`, `Middleware`, and `Name` map 1:1 between PHPDoc directives and attribute named parameters.
+- Add a class-level `@RoutePrefix`/`@Prefix` directive or `#[RoutePrefix]`/`#[Prefix]` attribute for shared path segments.
+- Controllers can be registered as class names or instances (resolved through the container when available).
+
 ## Handler Parameter Binding
 
 Handlers can type-hint any of the following and the application resolves them automatically:
