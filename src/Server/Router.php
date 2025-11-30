@@ -6,6 +6,7 @@ namespace PhpEasyHttp\Http\Server;
 
 use PhpEasyHttp\Http\Message\Interfaces\ServerRequestInterface;
 use PhpEasyHttp\Http\Server\Exceptions\RouteDontExistException;
+use PhpEasyHttp\Http\Server\Support\AsyncDetector;
 
 class Router
 {
@@ -31,7 +32,7 @@ class Router
     }
 
     /**
-     * @return array{RouteDefinition, array<string, string>} 
+     * @return array{RouteDefinition, array<string, string>, bool}
      */
     public function match(ServerRequestInterface $request): array
     {
@@ -41,7 +42,8 @@ class Router
         foreach ($this->routes as $route) {
             $params = $route->match($method, $path);
             if ($params !== null) {
-                return [$route, $params];
+                $isAsync = AsyncDetector::isAsync($route->getHandler());
+                return [$route, $params, $isAsync];
             }
         }
 

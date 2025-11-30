@@ -14,9 +14,11 @@ use PhpEasyHttp\Http\Message\Uri;
 use PhpEasyHttp\Http\Server\Exceptions\MiddlewareException;
 use PhpEasyHttp\Http\Server\Interfaces\MiddlewareInterface;
 use PhpEasyHttp\Http\Server\Interfaces\RequestHandlerInterface;
+use PhpEasyHttp\Http\Server\Support\AsyncDispatcher;
 use PhpEasyHttp\Http\Server\Support\CallableRequestHandler;
 use PhpEasyHttp\Http\Server\Support\Container;
 use PhpEasyHttp\Http\Server\Support\OpenApi\OpenApiGenerator;
+use PhpEasyHttp\Http\Server\Support\SyncDispatcher;
 use PhpEasyHttp\Http\Server\Support\ResponseFactory;
 use PhpEasyHttp\Http\Server\Support\RouteDocBlockParser;
 use ReflectionClass;
@@ -39,6 +41,10 @@ class Application
     private array $globalMiddleware = [];
 
     private bool $docsEnabled = false;
+
+    private AsyncDispatcher $asyncDispatcher;
+
+    private SyncDispatcher $syncDispatcher;
 
     /** @var array{
      *     title?: string,
@@ -68,6 +74,8 @@ class Application
         $this->router = $router ?? new Router();
         $this->container = $container ?? new Container();
         $this->container->set(ResponseFactory::class, fn () => new ResponseFactory());
+        $this->asyncDispatcher = new AsyncDispatcher();
+        $this->syncDispatcher = new SyncDispatcher();
     }
 
     /**
@@ -226,7 +234,7 @@ class Application
         $request ??= $this->createRequestFromGlobals();
 
         try {
-            [$route, $params] = $this->router->match($request);
+            [$route, $params, $isAsync] = $this->router->match($request);
         } catch (Exceptions\RouteDontExistException $exception) {
             $factory = $this->container->get(ResponseFactory::class);
             $response = $factory->json([
@@ -245,8 +253,8 @@ class Application
             $request = $request->withAttribute($key, $value);
         }
 
-        $core = function (ServerRequestInterface $serverRequest) use ($route, $params): ResponseInterface {
-            $result = $this->invokeHandler($route->getHandler(), $serverRequest, $params);
+        $core = function (ServerRequestInterface $serverRequest) use ($route, $params, $isAsync): ResponseInterface {
+            $result = $this->invokeHandler($route->getHandler(), $serverRequest, $params, $isAsync);
             return $this->normalizeResponse($result);
         };
 
@@ -348,7 +356,7 @@ class Application
         return new $controller();
     }
 
-    private function invokeHandler(callable $handler, ServerRequestInterface $request, array $params): mixed
+    private function invokeHandler(callable $handler, ServerRequestInterface $request, array $params, bool $isAsync): mixed
     {
         $reflection = $this->createReflection($handler);
         $arguments = [];
@@ -357,7 +365,13 @@ class Application
             $arguments[] = $this->resolveParameter($parameter, $request, $params);
         }
 
-        return $handler(...$arguments);
+        $callable = static fn () => $handler(...$arguments);
+
+        if ($isAsync) {
+            return $this->asyncDispatcher->dispatch($callable);
+        }
+
+        return $this->syncDispatcher->dispatch($callable);
     }
 
     private function resolveParameter(ReflectionParameter $parameter, ServerRequestInterface $request, array $params): mixed

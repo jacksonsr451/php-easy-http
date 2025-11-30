@@ -24,10 +24,11 @@ final class RouterTest extends TestCase
 
         $request = new ServerRequest('GET', new Uri('https://example.com/users/5'));
 
-        [$matchedRoute, $params] = $router->match($request);
+        [$matchedRoute, $params, $isAsync] = $router->match($request);
 
         self::assertSame($userRoute, $matchedRoute);
         self::assertSame(['id' => '5'], $params);
+        self::assertFalse($isAsync);
     }
 
     public function testMatchThrowsWhenNoRouteExists(): void
